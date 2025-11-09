@@ -232,6 +232,14 @@ def _parse_datetime(dt_str, field_name):
         raise ValueError(f"Invalid datetime format for {field_name}. Expected YYYY-MM-DD HH:MM:SS.")
 
 
+def _to_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ["true", "1", "yes", "y", "on"]
+    return bool(value)
+
+
 def add_audit_log(action, details, user_role, commit=True):
     """Persist entry to audit log."""
     log_entry = AuditLog(action=action, details=details, user_role=user_role, timestamp=datetime.utcnow())
@@ -902,17 +910,102 @@ def licenses():
             add_audit_log("DELETE", f"Deleted license {license_id}", current_role)
             return jsonify(license_obj.to_dict())
 
-@app.route('/api/monitoring/hardware', methods=['GET'])
+@app.route('/api/monitoring/hardware', methods=['GET', 'POST', 'DELETE'])
 def hardware_health():
     """Get hardware health monitoring data"""
-    records = HardwareHealthRecord.query.all()
-    return jsonify([record.to_dict() for record in records])
+    if request.method == 'GET':
+        records = HardwareHealthRecord.query.all()
+        return jsonify([record.to_dict() for record in records])
 
-@app.route('/api/monitoring/network', methods=['GET'])
+    global current_role, is_authenticated
+    if not is_authenticated or current_role != "Admin":
+        return jsonify({"error": "Insufficient permissions"}), 403
+
+    if request.method == 'POST':
+        data = request.json or {}
+        device_id = data.get('deviceId')
+        cpu_load = data.get('cpuLoad')
+        memory_util = data.get('memoryUtil')
+        is_overheating = _to_bool(data.get('isOverheating', False))
+        last_check = data.get('lastCheck')
+
+        if not all([device_id, cpu_load is not None, memory_util is not None]):
+            return jsonify({"error": "deviceId, cpuLoad, and memoryUtil are required"}), 400
+
+        try:
+            parsed_last_check = _parse_datetime(last_check, 'lastCheck') if last_check else datetime.utcnow()
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        record = HardwareHealthRecord(
+            device_id=device_id,
+            cpu_load=int(cpu_load),
+            memory_util=int(memory_util),
+            is_overheating=is_overheating,
+            last_check=parsed_last_check,
+        )
+        db.session.add(record)
+        db.session.commit()
+        add_audit_log("CREATE_HARDWARE", f"Hardware record added for {device_id}", current_role)
+        return jsonify(record.to_dict()), 201
+
+    device_id = request.args.get('deviceId')
+    if not device_id:
+        return jsonify({"error": "deviceId query parameter is required"}), 400
+
+    record = HardwareHealthRecord.query.filter_by(device_id=device_id).first()
+    if not record:
+        return jsonify({"error": "Hardware record not found"}), 404
+
+    db.session.delete(record)
+    db.session.commit()
+    add_audit_log("DELETE_HARDWARE", f"Hardware record {device_id} removed", current_role)
+    return jsonify({"success": True})
+
+@app.route('/api/monitoring/network', methods=['GET', 'POST', 'DELETE'])
 def network_usage():
     """Get network usage monitoring data"""
-    devices = NetworkDevice.query.all()
-    return jsonify([device.to_dict() for device in devices])
+    if request.method == 'GET':
+        devices = NetworkDevice.query.all()
+        return jsonify([device.to_dict() for device in devices])
+
+    global current_role, is_authenticated
+    if not is_authenticated or current_role != "Admin":
+        return jsonify({"error": "Insufficient permissions"}), 403
+
+    if request.method == 'POST':
+        data = request.json or {}
+        device_id = data.get('deviceId')
+        bandwidth_mb = data.get('bandwidthMB')
+        is_downtime = _to_bool(data.get('isDowntime', False))
+        abnormal_traffic = _to_bool(data.get('abnormalTraffic', False))
+
+        if not all([device_id, bandwidth_mb is not None]):
+            return jsonify({"error": "deviceId and bandwidthMB are required"}), 400
+
+        entry = NetworkDevice(
+            device_id=device_id,
+            bandwidth_mb=int(bandwidth_mb),
+            is_downtime=is_downtime,
+            abnormal_traffic=abnormal_traffic,
+        )
+        db.session.add(entry)
+        db.session.commit()
+        add_audit_log("CREATE_NETWORK", f"Network device {device_id} added", current_role)
+        return jsonify(entry.to_dict()), 201
+
+    device_id = request.args.get('deviceId')
+    if not device_id:
+        return jsonify({"error": "deviceId query parameter is required"}), 400
+
+    entry = NetworkDevice.query.filter_by(device_id=device_id).first()
+    if not entry:
+        return jsonify({"error": "Network record not found"}), 404
+
+    db.session.delete(entry)
+    db.session.commit()
+    add_audit_log("DELETE_NETWORK", f"Network device {device_id} removed", current_role)
+    return jsonify({"success": True})
 
 @app.route('/api/monitoring/backup', methods=['GET'])
 def backup_recovery():

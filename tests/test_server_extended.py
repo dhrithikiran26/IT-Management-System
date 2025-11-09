@@ -434,6 +434,89 @@ class IIMSExtendedTestCase(unittest.TestCase):
         response = self.app.get('/api/assets/logs')
         self.assertEqual(response.status_code, 403)
 
+    def test_admin_can_add_hardware_record(self):
+        """Admin can add hardware monitoring entries"""
+        self.app.post('/api/auth/login',
+                     json={'username': 'admin', 'password': 'admin123', 'mfaCode': '123456'})
+        response = self.app.post('/api/monitoring/hardware',
+                                json={
+                                    'deviceId': 'DEV-NEW-001',
+                                    'cpuLoad': 55,
+                                    'memoryUtil': 60,
+                                    'isOverheating': False
+                                })
+        self.assertEqual(response.status_code, 201)
+        data = json.loads(response.data)
+        self.assertEqual(data['deviceId'], 'DEV-NEW-001')
+
+    def test_itstaff_cannot_add_hardware_record(self):
+        """IT Staff should not create hardware entries"""
+        self.app.post('/api/auth/login',
+                     json={'username': 'itstaff', 'password': 'it123'})
+        response = self.app.post('/api/monitoring/hardware',
+                                json={
+                                    'deviceId': 'DEV-BLOCK-001',
+                                    'cpuLoad': 70,
+                                    'memoryUtil': 75
+                                })
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_can_delete_hardware_record(self):
+        """Admin can delete hardware entries"""
+        self.app.post('/api/auth/login',
+                     json={'username': 'admin', 'password': 'admin123', 'mfaCode': '123456'})
+        # Ensure record exists
+        self.app.post('/api/monitoring/hardware',
+                     json={
+                         'deviceId': 'DEV-DEL-001',
+                         'cpuLoad': 50,
+                         'memoryUtil': 45,
+                         'isOverheating': False
+                     })
+        response = self.app.delete('/api/monitoring/hardware?deviceId=DEV-DEL-001')
+        self.assertEqual(response.status_code, 200)
+
+    def test_admin_can_delete_network_record(self):
+        """Admin can delete network entries"""
+        self.app.post('/api/auth/login',
+                     json={'username': 'admin', 'password': 'admin123', 'mfaCode': '123456'})
+        # Ensure record exists
+        self.app.post('/api/monitoring/network',
+                     json={
+                         'deviceId': 'NET-DEL-001',
+                         'bandwidthMB': 123,
+                         'isDowntime': False,
+                         'abnormalTraffic': False
+                     })
+        response = self.app.delete('/api/monitoring/network?deviceId=NET-DEL-001')
+        self.assertEqual(response.status_code, 200)
+
+    def test_admin_can_add_network_record(self):
+        """Admin can add network monitoring entries"""
+        self.app.post('/api/auth/login',
+                     json={'username': 'admin', 'password': 'admin123', 'mfaCode': '123456'})
+        response = self.app.post('/api/monitoring/network',
+                                json={
+                                    'deviceId': 'NET-NEW-001',
+                                    'bandwidthMB': 150,
+                                    'isDowntime': False,
+                                    'abnormalTraffic': True
+                                })
+        self.assertEqual(response.status_code, 201)
+        data = json.loads(response.data)
+        self.assertEqual(data['deviceId'], 'NET-NEW-001')
+
+    def test_itstaff_cannot_add_network_record(self):
+        """IT Staff should not create network entries"""
+        self.app.post('/api/auth/login',
+                     json={'username': 'itstaff', 'password': 'it123'})
+        response = self.app.post('/api/monitoring/network',
+                                json={
+                                    'deviceId': 'NET-BLOCK-001',
+                                    'bandwidthMB': 250
+                                })
+        self.assertEqual(response.status_code, 403)
+
     def test_employee_cannot_comment_on_backup(self):
         """Employees are denied backup comment updates"""
         self.app.post('/api/auth/login',

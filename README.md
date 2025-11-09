@@ -7,6 +7,7 @@ A comprehensive full-stack application prototype for managing IT infrastructure 
 - **Asset Management**: Full CRUD operations with QR code generation
 - **License Management**: Track software licenses with compliance status
 - **Monitoring**: Hardware health, network usage, and backup status
+- **Monitoring Data Entry**: Admins can add hardware and network monitoring records directly from the dashboard
 - **Role-Based Access Control**: Admin, IT Staff, and Employee roles
 - **User Provisioning**: Admins can create new users and assign IT Staff or Employee roles
 - **Asset Change Tracking**: Admin-only asset change log with per-event details
