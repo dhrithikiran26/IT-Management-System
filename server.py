@@ -745,10 +745,17 @@ def assets():
     global current_role, current_user_name
     
     if request.method == 'GET':
+        query = Asset.query
         if current_role == "Employee" and current_user_name:
-            records = Asset.query.filter_by(assigned_user=current_user_name).all()
+            query = query.filter(Asset.assigned_user == current_user_name)
         else:
-            records = Asset.query.all()
+            employee_filter = request.args.get('assignedUser')
+            type_filter = request.args.get('assetType')
+            if employee_filter:
+                query = query.filter(Asset.assigned_user == employee_filter)
+            if type_filter:
+                query = query.filter(Asset.asset_type == type_filter)
+        records = query.all()
         return jsonify([asset.to_dict() for asset in records])
     
     elif request.method == 'POST':

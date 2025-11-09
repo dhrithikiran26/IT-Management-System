@@ -517,6 +517,26 @@ class IIMSExtendedTestCase(unittest.TestCase):
                                 })
         self.assertEqual(response.status_code, 403)
 
+    def test_itstaff_filter_assets_by_type(self):
+        """IT Staff can filter assets by type"""
+        self.app.post('/api/auth/login',
+                     json={'username': 'itstaff', 'password': 'it123'})
+        response = self.app.get('/api/assets?assetType=Laptop')
+        self.assertEqual(response.status_code, 200)
+        assets = json.loads(response.data)
+        self.assertGreater(len(assets), 0)
+        self.assertTrue(all(asset['assetType'] == 'Laptop' for asset in assets))
+
+    def test_itstaff_filter_assets_by_employee(self):
+        """IT Staff can filter assets by assigned employee"""
+        self.app.post('/api/auth/login',
+                     json={'username': 'itstaff', 'password': 'it123'})
+        response = self.app.get('/api/assets?assignedUser=Alice%20Johnson')
+        self.assertEqual(response.status_code, 200)
+        assets = json.loads(response.data)
+        self.assertGreater(len(assets), 0)
+        self.assertTrue(all(asset['assignedUser'] == 'Alice Johnson' for asset in assets))
+
     def test_employee_cannot_comment_on_backup(self):
         """Employees are denied backup comment updates"""
         self.app.post('/api/auth/login',
