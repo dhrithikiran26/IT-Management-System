@@ -8,6 +8,7 @@ A comprehensive full-stack application prototype for managing IT infrastructure 
 - **License Management**: Track software licenses with compliance status
 - **Monitoring**: Hardware health, network usage, and backup status
 - **Role-Based Access Control**: Admin, IT Staff, and Employee roles
+- **User Provisioning**: Admins can create new users and assign IT Staff or Employee roles
 - **Authentication**: Login with MFA support for Admin users
 - **Analytics**: Asset distribution by department
 - **Integration Status**: External service monitoring

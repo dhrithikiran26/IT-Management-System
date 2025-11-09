@@ -277,6 +277,47 @@ class IIMSExtendedTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.data)
         self.assertFalse(data.get('success', True))
+    
+    def test_admin_can_create_user(self):
+        """Admin should be able to create new users with roles"""
+        # Login as Admin
+        self.app.post('/api/auth/login',
+                     json={'username': 'admin', 'password': 'admin123', 'mfaCode': '123456'})
+        # Create new user
+        response = self.app.post('/api/users',
+                                json={
+                                    'username': 'newemployee',
+                                    'password': 'emp456',
+                                    'role': 'Employee',
+                                    'name': 'New Employee',
+                                    'requiresMFA': False
+                                })
+        self.assertEqual(response.status_code, 201)
+        data = json.loads(response.data)
+        self.assertEqual(data['username'], 'newemployee')
+        self.assertEqual(data['role'], 'Employee')
+        # Fetch user list
+        list_response = self.app.get('/api/users')
+        self.assertEqual(list_response.status_code, 200)
+        users = json.loads(list_response.data)
+        usernames = [user['username'] for user in users]
+        self.assertIn('newemployee', usernames)
+    
+    def test_non_admin_cannot_create_user(self):
+        """Non-admin roles should be denied user creation"""
+        # Login as IT Staff
+        self.app.post('/api/auth/login',
+                     json={'username': 'itstaff', 'password': 'it123'})
+        response = self.app.post('/api/users',
+                                json={
+                                    'username': 'blockeduser',
+                                    'password': 'test123',
+                                    'role': 'Employee'
+                                })
+        self.assertEqual(response.status_code, 403)
+        # GET should also be forbidden
+        response = self.app.get('/api/users')
+        self.assertEqual(response.status_code, 403)
 
 if __name__ == '__main__':
     unittest.main()

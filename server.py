@@ -704,6 +704,45 @@ def backup_recovery():
     jobs = BackupJob.query.all()
     return jsonify([job.to_dict() for job in jobs])
 
+@app.route('/api/users', methods=['GET', 'POST'])
+def manage_users():
+    """Admin-only user management endpoint."""
+    global current_role, is_authenticated
+    if not is_authenticated or current_role != "Admin":
+        return jsonify({"error": "Insufficient permissions"}), 403
+
+    if request.method == 'GET':
+        users = User.query.all()
+        return jsonify([user.to_dict() for user in users])
+
+    data = request.json or {}
+    username = (data.get('username') or '').strip().lower()
+    password = data.get('password')
+    role = data.get('role', 'Employee')
+    name = data.get('name', username or "User").strip()
+    requires_mfa = data.get('requiresMFA', data.get('requires_mfa', False))
+
+    if not username:
+        return jsonify({"error": "Username is required"}), 400
+    if not password:
+        return jsonify({"error": "Password is required"}), 400
+    if role not in ["IT Staff", "Employee"]:
+        return jsonify({"error": "Role must be either 'IT Staff' or 'Employee'"}), 400
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "Username already exists"}), 409
+
+    user = User(
+        username=username,
+        password=password,
+        role=role,
+        name=name or username,
+        requires_mfa=bool(requires_mfa),
+    )
+    db.session.add(user)
+    db.session.commit()
+    add_audit_log("CREATE_USER", f"User {username} created with role {role}", current_role)
+    return jsonify(user.to_dict()), 201
+
 @app.route('/api/audit-log', methods=['GET'])
 def audit_log():
     """Get audit log (Admin/IT Staff only)"""

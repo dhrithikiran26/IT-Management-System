@@ -289,6 +289,68 @@
                 </div>
             </section>
 
+            <!-- User Management Section (Admin Only) -->
+            <section id="userManagement" class="mb-6 sm:mb-8 hidden">
+                <div class="bg-white rounded-lg shadow-md p-4 sm:p-6">
+                    <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+                        <div class="flex-1">
+                            <h2 class="text-xl sm:text-2xl font-semibold text-gray-800 mb-4">User Management</h2>
+                            <p class="text-sm text-gray-600 mb-4">Create IT Staff and Employee accounts directly from the admin panel.</p>
+                            <form id="userCreateForm" class="space-y-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                                        <input type="text" id="userCreateUsername" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+                                        <input type="text" id="userCreateName" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="Optional">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                        <input type="password" id="userCreatePassword" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                                        <select id="userCreateRole" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                                            <option value="IT Staff">IT Staff</option>
+                                            <option value="Employee">Employee</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="flex items-center">
+                                    <input type="checkbox" id="userCreateMfa" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                    <label for="userCreateMfa" class="ml-2 text-sm text-gray-700">Require MFA at login</label>
+                                </div>
+                                <div id="userCreateMessage" class="hidden text-sm font-medium"></div>
+                                <div class="flex justify-end">
+                                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Create User</button>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="flex-1 lg:max-w-xl">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-3">Existing Users</h3>
+                            <div class="border border-gray-200 rounded-lg overflow-hidden">
+                                <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-3 py-2 text-left font-medium text-gray-500 uppercase text-xs">Username</th>
+                                            <th class="px-3 py-2 text-left font-medium text-gray-500 uppercase text-xs">Name</th>
+                                            <th class="px-3 py-2 text-left font-medium text-gray-500 uppercase text-xs">Role</th>
+                                            <th class="px-3 py-2 text-left font-medium text-gray-500 uppercase text-xs">MFA</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="userTableBody" class="divide-y divide-gray-200">
+                                        <!-- Populated by JavaScript -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p id="userTableEmpty" class="hidden text-sm text-gray-500 mt-2">No users found.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Audit Log Section (ITM-SR-004) - Admin/IT Staff Only -->
             <section id="auditLog" class="mb-6 sm:mb-8">
                 <h2 class="text-xl sm:text-2xl font-semibold text-gray-800 mb-4">Audit Log</h2>
@@ -488,7 +550,6 @@
                     currentRole = data.role;
                     currentUserName = data.name;
                     showMainApp();
-                    loadAllData();
                 } else {
                     // Show MFA section if required
                     if (data.requiresMFA) {
@@ -522,6 +583,7 @@
             document.getElementById('mainApp').classList.remove('hidden');
             document.getElementById('userName').textContent = currentUserName || currentRole;
             updateUIForRole();
+            loadAllData();
         }
 
         function updateUIForRole() {
@@ -531,6 +593,16 @@
             document.getElementById('auditLog').style.display = canCRUD ? 'block' : 'none';
             document.getElementById('verifyBackupBtn').style.display = canCRUD ? 'block' : 'none';
             document.getElementById('integrationStatusCard').style.display = canCRUD ? 'block' : 'none';
+            const userSection = document.getElementById('userManagement');
+            if (userSection) {
+                if (currentRole === 'Admin') {
+                    userSection.classList.remove('hidden');
+                    loadUsers();
+                } else {
+                    userSection.classList.add('hidden');
+                    resetUserManagementUI();
+                }
+            }
         }
 
         // Dashboard
@@ -944,6 +1016,67 @@
             }
         }
 
+        // User Management (Admin)
+        function setUserMessage(message, type = 'success') {
+            const messageEl = document.getElementById('userCreateMessage');
+            if (!messageEl) return;
+            messageEl.classList.remove('text-red-600', 'text-green-600');
+            if (!message) {
+                messageEl.classList.add('hidden');
+                messageEl.textContent = '';
+                return;
+            }
+            messageEl.textContent = message;
+            messageEl.classList.remove('hidden');
+            messageEl.classList.add(type === 'error' ? 'text-red-600' : 'text-green-600');
+        }
+
+        function resetUserManagementUI() {
+            const tableBody = document.getElementById('userTableBody');
+            if (tableBody) tableBody.innerHTML = '';
+            const emptyMsg = document.getElementById('userTableEmpty');
+            if (emptyMsg) emptyMsg.classList.add('hidden');
+            const form = document.getElementById('userCreateForm');
+            if (form) form.reset();
+            setUserMessage(null);
+        }
+
+        async function loadUsers() {
+            if (currentRole !== 'Admin') return;
+            try {
+                const response = await fetch(`${API_BASE}/users`);
+                if (!response.ok) {
+                    throw new Error(`Request failed with status ${response.status}`);
+                }
+                const users = await response.json();
+                const tableBody = document.getElementById('userTableBody');
+                const emptyMsg = document.getElementById('userTableEmpty');
+
+                if (!tableBody) return;
+
+                tableBody.innerHTML = '';
+                if (users.length === 0) {
+                    if (emptyMsg) emptyMsg.classList.remove('hidden');
+                    return;
+                }
+                if (emptyMsg) emptyMsg.classList.add('hidden');
+
+                users.forEach(user => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="px-3 py-2 whitespace-nowrap text-gray-700">${user.username}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-gray-500">${user.name || '-'}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-gray-500">${user.role}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-gray-500">${user.requiresMFA ? 'Yes' : 'No'}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('Error loading users:', error);
+                setUserMessage('Unable to load users. Please try again.', 'error');
+            }
+        }
+
         // Audit Log
         async function loadAuditLog() {
             try {
@@ -981,6 +1114,9 @@
             loadNetwork();
             loadBackup();
             loadAuditLog();
+            if (currentRole === 'Admin') {
+                loadUsers();
+            }
         }
 
         // Event Listeners
@@ -1078,6 +1214,54 @@
             document.getElementById('closeBackupVerifyModal').addEventListener('click', () => {
                 document.getElementById('backupVerifyModal').classList.add('hidden');
             });
+
+            // User management form
+            const userForm = document.getElementById('userCreateForm');
+            if (userForm) {
+                userForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    if (currentRole !== 'Admin') {
+                        setUserMessage('Only admins can create users.', 'error');
+                        return;
+                    }
+
+                    const payload = {
+                        username: document.getElementById('userCreateUsername').value.trim(),
+                        name: document.getElementById('userCreateName').value.trim(),
+                        password: document.getElementById('userCreatePassword').value,
+                        role: document.getElementById('userCreateRole').value,
+                        requiresMFA: document.getElementById('userCreateMfa').checked
+                    };
+
+                    if (!payload.username || !payload.password) {
+                        setUserMessage('Username and password are required.', 'error');
+                        return;
+                    }
+
+                    try {
+                        const response = await fetch(`${API_BASE}/users`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            setUserMessage(data.error || 'Failed to create user.', 'error');
+                            return;
+                        }
+
+                        userForm.reset();
+                        document.getElementById('userCreateRole').value = 'IT Staff';
+                        setUserMessage(`User "${data.username}" created successfully.`, 'success');
+                        loadUsers();
+                        loadAuditLog();
+                    } catch (error) {
+                        console.error('Error creating user:', error);
+                        setUserMessage('Unexpected error creating user.', 'error');
+                    }
+                });
+            }
         }
 
         // Make functions global for onclick handlers
