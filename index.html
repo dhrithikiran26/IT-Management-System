@@ -163,7 +163,7 @@
                         </button>
                         <button id="downloadReportCsvBtn" class="px-4 sm:px-6 py-2 bg-green-600 text-white rounded-lg text-sm sm:text-base hover:bg-green-700 hidden">
                             Download CSV
-                        </button>
+                    </button>
                     </div>
                 </div>
             </section>
@@ -206,13 +206,21 @@
                             <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Warranty Expiry</th>
                             <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
                             <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                            <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                                <th id="assetActionsHeader" class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="assetsTableBody" class="bg-white divide-y divide-gray-200">
                             <!-- Populated by JavaScript -->
                         </tbody>
                     </table>
+                </div>
+            </section>
+
+            <!-- Employee Alerts Section -->
+            <section id="employeeAlertsSection" class="mb-6 sm:mb-8 hidden">
+                <h2 class="text-xl sm:text-2xl font-semibold text-gray-800 mb-4">Asset Alerts</h2>
+                <div id="employeeAlertsContent" class="bg-white rounded-lg shadow-md p-4 sm:p-6 text-sm text-gray-600 space-y-3">
+                    <p>No upcoming warranty expirations.</p>
                 </div>
             </section>
 
@@ -312,7 +320,7 @@
                                 <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Asset ID</th>
                                 <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Run Date</th>
                                 <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                            <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Alert Reason</th>
+                                <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Alert Reason</th>
                             <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Technician Comment</th>
                             </tr>
                         </thead>
@@ -438,7 +446,7 @@
                         <button id="auditPrevBtn" class="px-3 py-1 bg-gray-200 text-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm">Previous</button>
                         <span id="auditPageInfo" class="text-xs sm:text-sm text-gray-500">Page 1</span>
                         <button id="auditNextBtn" class="px-3 py-1 bg-gray-200 text-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm">Next</button>
-                    </div>
+                </div>
                 </div>
                 <p id="auditLogEmptyState" class="hidden text-sm text-gray-500 mt-2">No audit entries yet.</p>
             </section>
@@ -801,6 +809,19 @@
                 }
             }
 
+            const employeeAlertsSection = document.getElementById('employeeAlertsSection');
+            const employeeAlertsContent = document.getElementById('employeeAlertsContent');
+            if (employeeAlertsSection) {
+                if (isEmployee) {
+                    employeeAlertsSection.classList.remove('hidden');
+                } else {
+                    employeeAlertsSection.classList.add('hidden');
+                    if (employeeAlertsContent) {
+                        employeeAlertsContent.innerHTML = '<p>No upcoming warranty expirations.</p>';
+                    }
+                }
+            }
+
             const auditSection = document.getElementById('auditLog');
             if (auditSection) {
                 if (roleLower === 'admin') {
@@ -994,6 +1015,11 @@
                 if (roleLower === 'it staff') {
                     updateAssetFilterOptions(assets);
                 }
+                if (roleLower === 'employee') {
+                    renderEmployeeAssetAlerts(assets);
+                } else {
+                    renderEmployeeAssetAlerts([]);
+                }
                 
                 assets.forEach(asset => {
                     const row = document.createElement('tr');
@@ -1023,6 +1049,76 @@
             } catch (error) {
                 console.error('Error loading assets:', error);
             }
+        }
+
+        function renderEmployeeAssetAlerts(assets) {
+            const roleLower = (currentRole || '').toLowerCase();
+            const section = document.getElementById('employeeAlertsSection');
+            const content = document.getElementById('employeeAlertsContent');
+            if (!section || !content) return;
+
+            if (roleLower !== 'employee') {
+                section.classList.add('hidden');
+                content.innerHTML = '<p>No upcoming warranty expirations.</p>';
+                return;
+            }
+
+            section.classList.remove('hidden');
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const alerts = (assets || [])
+                .map(asset => {
+                    if (!asset || !asset.warrantyExpiryDate) return null;
+                    const expiry = new Date(asset.warrantyExpiryDate);
+                    if (Number.isNaN(expiry.getTime())) return null;
+                    expiry.setHours(0, 0, 0, 0);
+                    const diffMs = expiry.getTime() - today.getTime();
+                    const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                    if (daysRemaining < 0 || daysRemaining > 7) return null;
+                    return {
+                        assetId: asset.assetId,
+                        assetType: asset.assetType,
+                        warrantyExpiryDate: asset.warrantyExpiryDate,
+                        daysRemaining,
+                    };
+                })
+                .filter(Boolean)
+                .sort((a, b) => a.daysRemaining - b.daysRemaining);
+
+            if (alerts.length === 0) {
+                content.innerHTML = '<p>No upcoming warranty expirations.</p>';
+                return;
+            }
+
+            const alertItems = alerts.map(alert => {
+                let message;
+                if (alert.daysRemaining === 0) {
+                    message = 'Expires today';
+                } else if (alert.daysRemaining === 1) {
+                    message = '1 day remaining';
+                } else {
+                    message = `${alert.daysRemaining} days remaining`;
+                }
+                return `
+                    <div class="border border-amber-200 bg-amber-50 rounded-lg p-4">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <div>
+                                <p class="text-sm font-semibold text-amber-800">${alert.assetId} • ${alert.assetType || 'Unknown Type'}</p>
+                                <p class="text-xs text-amber-700">Warranty expires on ${alert.warrantyExpiryDate}</p>
+                            </div>
+                            <span class="inline-flex items-center px-3 py-1 bg-amber-200 text-amber-900 text-xs font-semibold rounded-full">${message}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            content.innerHTML = `
+                <div class="space-y-3">
+                    ${alertItems}
+                </div>
+            `;
         }
 
         function updateAssetFilterOptions(assets) {
@@ -1313,7 +1409,7 @@
                 tbody.innerHTML = '';
                 const role = (currentRole || '').toLowerCase();
                 const canComment = role === 'it staff';
-
+                
                 backups.forEach(job => {
                     const row = document.createElement('tr');
                     let statusBadge;
@@ -1326,7 +1422,7 @@
                     } else {
                         statusBadge = '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-semibold">Missed</span>';
                     }
-
+                    
                     const commentCell = canComment
                         ? `
                             <div class="space-y-2 max-w-[220px]">
@@ -1448,7 +1544,7 @@
             try {
                 const response = await fetch(`${API_BASE}/users/${encodeURIComponent(username)}/assets`);
                 const data = await response.json();
-
+                
                 if (!response.ok) {
                     if (content) {
                         content.innerHTML = `<p class="text-sm text-red-600">${data.error || 'Unable to fetch assets.'}</p>`;
@@ -1905,7 +2001,7 @@
         }
 
         function renderAuditLog() {
-            const tbody = document.getElementById('auditLogTableBody');
+                const tbody = document.getElementById('auditLogTableBody');
             const emptyState = document.getElementById('auditLogEmptyState');
             const pageInfo = document.getElementById('auditPageInfo');
             const prevBtn = document.getElementById('auditPrevBtn');
@@ -1914,7 +2010,7 @@
                 return;
             }
 
-            tbody.innerHTML = '';
+                tbody.innerHTML = '';
             if (!Array.isArray(auditLogs) || auditLogs.length === 0) {
                 if (emptyState) emptyState.classList.remove('hidden');
                 if (pageInfo) pageInfo.textContent = 'No entries';
@@ -1932,15 +2028,15 @@
             const pageItems = auditLogs.slice(start, start + AUDIT_LOG_PAGE_SIZE);
 
             pageItems.forEach(log => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td class="px-3 sm:px-6 py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">${log.timestamp}</td>
-                    <td class="px-3 sm:px-6 py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">${log.userRole}</td>
-                    <td class="px-3 sm:px-6 py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">${log.action}</td>
-                    <td class="px-3 sm:px-6 py-4 text-xs sm:text-sm text-gray-500">${log.details}</td>
-                `;
-                tbody.appendChild(row);
-            });
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="px-3 sm:px-6 py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">${log.timestamp}</td>
+                        <td class="px-3 sm:px-6 py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">${log.userRole}</td>
+                        <td class="px-3 sm:px-6 py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">${log.action}</td>
+                        <td class="px-3 sm:px-6 py-4 text-xs sm:text-sm text-gray-500">${log.details}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
 
             if (pageInfo) {
                 pageInfo.textContent = `Page ${auditLogPage + 1} of ${totalPages}`;
@@ -1967,7 +2063,7 @@
                 loadUsers();
                 loadAssetLogs();
                 if (auditLogs.length === 0) {
-                    loadAuditLog();
+            loadAuditLog();
                 } else {
                     renderAuditLog();
                 }
