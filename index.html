@@ -407,7 +407,13 @@
                             <!-- Populated by JavaScript -->
                         </tbody>
                     </table>
+                    <div class="flex items-center justify-between p-3 border-t border-gray-200">
+                        <button id="auditPrevBtn" class="px-3 py-1 bg-gray-200 text-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm">Previous</button>
+                        <span id="auditPageInfo" class="text-xs sm:text-sm text-gray-500">Page 1</span>
+                        <button id="auditNextBtn" class="px-3 py-1 bg-gray-200 text-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm">Next</button>
+                    </div>
                 </div>
+                <p id="auditLogEmptyState" class="hidden text-sm text-gray-500 mt-2">No audit entries yet.</p>
             </section>
         </div>
     </div>
@@ -646,6 +652,9 @@
         const API_BASE = 'http://localhost:5000/api';
         let currentRole = null;
         let currentUserName = null;
+        let auditLogs = [];
+        let auditLogPage = 0;
+        const AUDIT_LOG_PAGE_SIZE = 10;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -723,7 +732,18 @@
             const canCRUD = currentRole === 'Admin' || currentRole === 'IT Staff';
             document.getElementById('addAssetBtn').style.display = canCRUD ? 'block' : 'none';
             document.getElementById('addLicenseBtn').style.display = canCRUD ? 'block' : 'none';
-            document.getElementById('auditLog').style.display = currentRole === 'Admin' ? 'block' : 'none';
+            const auditSection = document.getElementById('auditLog');
+            if (auditSection) {
+                if (currentRole === 'Admin') {
+                    auditSection.style.display = 'block';
+                    loadAuditLog();
+                } else {
+                    auditSection.style.display = 'none';
+                    auditLogs = [];
+                    auditLogPage = 0;
+                    renderAuditLog();
+                }
+            }
             document.getElementById('integrationStatusCard').style.display = canCRUD ? 'block' : 'none';
             const userSection = document.getElementById('userManagement');
             if (userSection) {
@@ -1618,25 +1638,62 @@
                 const response = await fetch(`${API_BASE}/audit-log`);
                 if (response.status === 403) {
                     document.getElementById('auditLog').style.display = 'none';
+                    auditLogs = [];
+                    auditLogPage = 0;
+                    renderAuditLog();
                     return;
                 }
-                const logs = await response.json();
-                const tbody = document.getElementById('auditLogTableBody');
-                tbody.innerHTML = '';
-                
-                logs.reverse().forEach(log => {
-                    const row = document.createElement('tr');
-                    row.innerHTML = `
-                        <td class="px-3 sm:px-6 py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">${log.timestamp}</td>
-                        <td class="px-3 sm:px-6 py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">${log.userRole}</td>
-                        <td class="px-3 sm:px-6 py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">${log.action}</td>
-                        <td class="px-3 sm:px-6 py-4 text-xs sm:text-sm text-gray-500">${log.details}</td>
-                    `;
-                    tbody.appendChild(row);
-                });
+                auditLogs = await response.json();
+                auditLogPage = 0;
+                renderAuditLog();
             } catch (error) {
                 console.error('Error loading audit log:', error);
             }
+        }
+
+        function renderAuditLog() {
+            const tbody = document.getElementById('auditLogTableBody');
+            const emptyState = document.getElementById('auditLogEmptyState');
+            const pageInfo = document.getElementById('auditPageInfo');
+            const prevBtn = document.getElementById('auditPrevBtn');
+            const nextBtn = document.getElementById('auditNextBtn');
+            if (!tbody) {
+                return;
+            }
+
+            tbody.innerHTML = '';
+            if (!Array.isArray(auditLogs) || auditLogs.length === 0) {
+                if (emptyState) emptyState.classList.remove('hidden');
+                if (pageInfo) pageInfo.textContent = 'No entries';
+                if (prevBtn) prevBtn.disabled = true;
+                if (nextBtn) nextBtn.disabled = true;
+                return;
+            }
+
+            if (emptyState) emptyState.classList.add('hidden');
+
+            const totalPages = Math.max(1, Math.ceil(auditLogs.length / AUDIT_LOG_PAGE_SIZE));
+            auditLogPage = Math.min(auditLogPage, totalPages - 1);
+
+            const start = auditLogPage * AUDIT_LOG_PAGE_SIZE;
+            const pageItems = auditLogs.slice(start, start + AUDIT_LOG_PAGE_SIZE);
+
+            pageItems.forEach(log => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="px-3 sm:px-6 py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">${log.timestamp}</td>
+                    <td class="px-3 sm:px-6 py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">${log.userRole}</td>
+                    <td class="px-3 sm:px-6 py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500">${log.action}</td>
+                    <td class="px-3 sm:px-6 py-4 text-xs sm:text-sm text-gray-500">${log.details}</td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            if (pageInfo) {
+                pageInfo.textContent = `Page ${auditLogPage + 1} of ${totalPages}`;
+            }
+            if (prevBtn) prevBtn.disabled = auditLogPage === 0;
+            if (nextBtn) nextBtn.disabled = auditLogPage >= totalPages - 1;
         }
 
         function loadAllData() {
@@ -1648,10 +1705,14 @@
             loadHardware();
             loadNetwork();
             loadBackup();
-            loadAuditLog();
             if ((currentRole || '').toLowerCase() === 'admin') {
                 loadUsers();
                 loadAssetLogs();
+                if (auditLogs.length === 0) {
+                    loadAuditLog();
+                } else {
+                    renderAuditLog();
+                }
             }
         }
 
@@ -1764,6 +1825,25 @@
             if (closeReportsBtn) {
                 closeReportsBtn.addEventListener('click', () => {
                     document.getElementById('reportsModal').classList.add('hidden');
+                });
+            }
+            const auditPrevBtn = document.getElementById('auditPrevBtn');
+            if (auditPrevBtn) {
+                auditPrevBtn.addEventListener('click', () => {
+                    if (auditLogPage > 0) {
+                        auditLogPage -= 1;
+                        renderAuditLog();
+                    }
+                });
+            }
+            const auditNextBtn = document.getElementById('auditNextBtn');
+            if (auditNextBtn) {
+                auditNextBtn.addEventListener('click', () => {
+                    const totalPages = Math.max(1, Math.ceil(auditLogs.length / AUDIT_LOG_PAGE_SIZE));
+                    if (auditLogPage < totalPages - 1) {
+                        auditLogPage += 1;
+                        renderAuditLog();
+                    }
                 });
             }
             const addHardwareBtn = document.getElementById('addHardwareBtn');
