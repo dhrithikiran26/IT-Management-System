@@ -319,6 +319,27 @@ class IIMSExtendedTestCase(unittest.TestCase):
         response = self.app.get('/api/users')
         self.assertEqual(response.status_code, 403)
 
+    def test_admin_can_view_employee_assets(self):
+        """Admin should be able to view assets assigned to an employee"""
+        # Login as Admin
+        self.app.post('/api/auth/login',
+                     json={'username': 'admin', 'password': 'admin123', 'mfaCode': '123456'})
+        response = self.app.get('/api/users/employee/assets')
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data)
+        self.assertIsInstance(data, list)
+        self.assertGreater(len(data), 0)
+        for asset in data:
+            self.assertEqual(asset['assignedUser'], 'Alice Johnson')
+
+    def test_non_admin_cannot_view_employee_assets(self):
+        """Only Admin can view employee assets"""
+        # Login as IT Staff
+        self.app.post('/api/auth/login',
+                     json={'username': 'itstaff', 'password': 'it123'})
+        response = self.app.get('/api/users/employee/assets')
+        self.assertEqual(response.status_code, 403)
+
 if __name__ == '__main__':
     unittest.main()
 

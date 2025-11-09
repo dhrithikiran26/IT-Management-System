@@ -338,6 +338,7 @@
                                             <th class="px-3 py-2 text-left font-medium text-gray-500 uppercase text-xs">Name</th>
                                             <th class="px-3 py-2 text-left font-medium text-gray-500 uppercase text-xs">Role</th>
                                             <th class="px-3 py-2 text-left font-medium text-gray-500 uppercase text-xs">MFA</th>
+                                            <th class="px-3 py-2 text-left font-medium text-gray-500 uppercase text-xs">Assets</th>
                                         </tr>
                                     </thead>
                                     <tbody id="userTableBody" class="divide-y divide-gray-200">
@@ -370,6 +371,22 @@
                     </table>
                 </div>
             </section>
+        </div>
+    </div>
+
+    <!-- User Assets Modal -->
+    <div id="userAssetsModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg p-4 sm:p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-start justify-between mb-4">
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-800">Employee Assets</h3>
+                    <p id="userAssetsSubtitle" class="text-sm text-gray-500"></p>
+                </div>
+                <button id="closeUserAssetsModal" class="text-gray-500 hover:text-gray-700 text-xl">&times;</button>
+            </div>
+            <div id="userAssetsContent">
+                <p class="text-sm text-gray-500">Loading assets...</p>
+            </div>
         </div>
     </div>
 
@@ -1039,6 +1056,12 @@
             const form = document.getElementById('userCreateForm');
             if (form) form.reset();
             setUserMessage(null);
+            const assetsContent = document.getElementById('userAssetsContent');
+            if (assetsContent) assetsContent.innerHTML = '<p class="text-sm text-gray-500">Loading assets...</p>';
+            const subtitle = document.getElementById('userAssetsSubtitle');
+            if (subtitle) subtitle.textContent = '';
+            const modal = document.getElementById('userAssetsModal');
+            if (modal) modal.classList.add('hidden');
         }
 
         async function loadUsers() {
@@ -1068,12 +1091,93 @@
                         <td class="px-3 py-2 whitespace-nowrap text-gray-500">${user.name || '-'}</td>
                         <td class="px-3 py-2 whitespace-nowrap text-gray-500">${user.role}</td>
                         <td class="px-3 py-2 whitespace-nowrap text-gray-500">${user.requiresMFA ? 'Yes' : 'No'}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">
+                            <button class="view-assets-btn px-3 py-1 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700">
+                                View Assets
+                            </button>
+                        </td>
                     `;
+                    const displayName = user.name || user.username;
+                    const button = row.querySelector('.view-assets-btn');
+                    if (button) {
+                        button.addEventListener('click', () => viewUserAssets(user.username, displayName));
+                    }
                     tableBody.appendChild(row);
                 });
             } catch (error) {
                 console.error('Error loading users:', error);
                 setUserMessage('Unable to load users. Please try again.', 'error');
+            }
+        }
+
+        async function viewUserAssets(username, displayName) {
+            if (currentRole !== 'Admin') return;
+            const modal = document.getElementById('userAssetsModal');
+            const content = document.getElementById('userAssetsContent');
+            const subtitle = document.getElementById('userAssetsSubtitle');
+
+            if (!modal) return;
+
+            if (subtitle) {
+                subtitle.textContent = `Assets assigned to ${displayName} (${username})`;
+            }
+            if (content) {
+                content.innerHTML = '<p class="text-sm text-gray-500">Loading assets...</p>';
+            }
+
+            modal.classList.remove('hidden');
+
+            try {
+                const response = await fetch(`${API_BASE}/users/${encodeURIComponent(username)}/assets`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    if (content) {
+                        content.innerHTML = `<p class="text-sm text-red-600">${data.error || 'Unable to fetch assets.'}</p>`;
+                    }
+                    return;
+                }
+
+                if (!content) return;
+
+                if (!Array.isArray(data) || data.length === 0) {
+                    content.innerHTML = '<p class="text-sm text-gray-500">No assets assigned.</p>';
+                    return;
+                }
+
+                const table = document.createElement('table');
+                table.className = 'min-w-full divide-y divide-gray-200 text-sm';
+                table.innerHTML = `
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-3 py-2 text-left font-medium text-gray-500 uppercase text-xs">Asset ID</th>
+                            <th class="px-3 py-2 text-left font-medium text-gray-500 uppercase text-xs">Type</th>
+                            <th class="px-3 py-2 text-left font-medium text-gray-500 uppercase text-xs">Department</th>
+                            <th class="px-3 py-2 text-left font-medium text-gray-500 uppercase text-xs">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200"></tbody>
+                `;
+
+                const tbody = table.querySelector('tbody');
+                data.forEach(asset => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="px-3 py-2 whitespace-nowrap text-gray-700">${asset.assetId}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-gray-500">${asset.assetType}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-gray-500">${asset.department || 'N/A'}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-gray-500">${asset.status}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+                content.innerHTML = '';
+                content.appendChild(table);
+            } catch (error) {
+                console.error('Error fetching user assets:', error);
+                if (content) {
+                    content.innerHTML = '<p class="text-sm text-red-600">Unexpected error fetching assets.</p>';
+                }
             }
         }
 
@@ -1214,6 +1318,13 @@
             document.getElementById('closeBackupVerifyModal').addEventListener('click', () => {
                 document.getElementById('backupVerifyModal').classList.add('hidden');
             });
+
+            const closeUserAssetsBtn = document.getElementById('closeUserAssetsModal');
+            if (closeUserAssetsBtn) {
+                closeUserAssetsBtn.addEventListener('click', () => {
+                    document.getElementById('userAssetsModal').classList.add('hidden');
+                });
+            }
 
             // User management form
             const userForm = document.getElementById('userCreateForm');

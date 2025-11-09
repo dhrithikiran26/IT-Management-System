@@ -743,6 +743,29 @@ def manage_users():
     add_audit_log("CREATE_USER", f"User {username} created with role {role}", current_role)
     return jsonify(user.to_dict()), 201
 
+@app.route('/api/users/<username>/assets', methods=['GET'])
+def user_assets(username):
+    """Admin-only view of assets assigned to a specific user."""
+    global current_role, is_authenticated
+    if not is_authenticated or current_role != "Admin":
+        return jsonify({"error": "Insufficient permissions"}), 403
+
+    user = User.query.filter_by(username=username.lower()).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    identifier_values = {value.strip() for value in [user.name or "", user.username or ""] if value}
+    if not identifier_values:
+        assets = []
+    else:
+        assets = (
+            Asset.query.filter(Asset.assigned_user.in_(identifier_values))
+            .order_by(Asset.asset_id.asc())
+            .all()
+        )
+
+    return jsonify([asset.to_dict() for asset in assets])
+
 @app.route('/api/audit-log', methods=['GET'])
 def audit_log():
     """Get audit log (Admin/IT Staff only)"""
