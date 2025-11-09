@@ -1,6 +1,14 @@
 import unittest
 import json
-from server import app, ASSET_DB, LICENSE_DB, HEALTH_DB, BACKUP_DB, NETWORK_DB
+from server import (
+    app,
+    Asset,
+    License,
+    HardwareHealthRecord,
+    BackupJob,
+    NetworkDevice,
+    initialize_database,
+)
 
 class IIMSTestCase(unittest.TestCase):
     """Test cases for IIMS Flask application"""
@@ -15,6 +23,8 @@ class IIMSTestCase(unittest.TestCase):
         server.current_role = None
         server.current_user = None
         server.is_authenticated = False
+        with app.app_context():
+            initialize_database(reset=True)
     
     def test_index_route(self):
         """Test that index route returns HTML"""
@@ -128,8 +138,10 @@ class IIMSTestCase(unittest.TestCase):
     
     def test_qr_code_generation(self):
         """Test QR code generation for asset"""
-        if len(ASSET_DB) > 0:
-            asset_id = ASSET_DB[0]['assetId']
+        with app.app_context():
+            asset = Asset.query.first()
+            asset_id = asset.asset_id if asset else None
+        if asset_id:
             response = self.app.get(f'/api/assets/{asset_id}/qr')
             self.assertEqual(response.status_code, 200)
             data = json.loads(response.data)
@@ -143,29 +155,31 @@ class IIMSTestCase(unittest.TestCase):
     
     def test_data_model_integrity(self):
         """Test that data models have required fields"""
-        # Test ASSET_DB
-        for asset in ASSET_DB:
-            self.assertIn('assetId', asset)
-            self.assertIn('assetType', asset)
-            self.assertIn('department', asset)
-        
-        # Test LICENSE_DB
-        for license in LICENSE_DB:
-            self.assertIn('licenseId', license)
-            self.assertIn('softwareName', license)
-            self.assertIn('complianceStatus', license)
-        
-        # Test HEALTH_DB - at least 2 should breach threshold
-        breach_count = sum(1 for dev in HEALTH_DB if dev['cpuLoad'] > 85 or dev['isOverheating'])
-        self.assertGreaterEqual(breach_count, 2, "At least 2 devices should breach health threshold")
-        
-        # Test NETWORK_DB - at least 2 should be flagged
-        flagged_count = sum(1 for net in NETWORK_DB if net['isDowntime'] or net['abnormalTraffic'])
-        self.assertGreaterEqual(flagged_count, 2, "At least 2 network devices should be flagged")
-        
-        # Test BACKUP_DB - at least 2 should be Failure or Missed
-        failed_count = sum(1 for job in BACKUP_DB if job['status'] in ['Failure', 'Missed'])
-        self.assertGreaterEqual(failed_count, 2, "At least 2 backup jobs should be Failure or Missed")
+        with app.app_context():
+            assets = Asset.query.all()
+            for asset in assets:
+                self.assertIsNotNone(asset.asset_id)
+                self.assertIsNotNone(asset.asset_type)
+                self.assertIsNotNone(asset.department)
+
+            licenses = License.query.all()
+            for license in licenses:
+                self.assertIsNotNone(license.license_id)
+                self.assertIsNotNone(license.software_name)
+                self.assertIsNotNone(license.compliance_status)
+
+            breach_count = HardwareHealthRecord.query.filter(
+                (HardwareHealthRecord.cpu_load > 85) | (HardwareHealthRecord.is_overheating.is_(True))
+            ).count()
+            self.assertGreaterEqual(breach_count, 2, "At least 2 devices should breach health threshold")
+
+            flagged_count = NetworkDevice.query.filter(
+                (NetworkDevice.is_downtime.is_(True)) | (NetworkDevice.abnormal_traffic.is_(True))
+            ).count()
+            self.assertGreaterEqual(flagged_count, 2, "At least 2 network devices should be flagged")
+
+            failed_count = BackupJob.query.filter(BackupJob.status.in_(["Failure", "Missed"])).count()
+            self.assertGreaterEqual(failed_count, 2, "At least 2 backup jobs should be Failure or Missed")
 
 if __name__ == '__main__':
     unittest.main()

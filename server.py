@@ -1,339 +1,524 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-from datetime import datetime, timedelta
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import or_
+from sqlalchemy.pool import StaticPool
+from datetime import datetime, timedelta, date
 import uuid
 import os
 
 app = Flask(__name__)
 CORS(app)
 
-# ==================== DATA MODELS (In-Memory Databases) ====================
+DATABASE_URL = os.environ.get("IIMS_DATABASE_URL", "sqlite:///ims.db")
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+engine_options = app.config.setdefault("SQLALCHEMY_ENGINE_OPTIONS", {})
+connect_args = engine_options.get("connect_args", {})
+if DATABASE_URL.startswith("sqlite"):
+    connect_args.setdefault("check_same_thread", False)
+    if DATABASE_URL.rstrip("/").endswith(":memory:"):
+        engine_options.setdefault("poolclass", StaticPool)
+engine_options["connect_args"] = connect_args
 
-# ASSET_DB (ITM-F-001) - Includes department field for analytics
-ASSET_DB = [
-    {
-        "assetId": "AST-001",
-        "assetType": "Laptop",
-        "assignedUser": "Alice Johnson",
-        "purchaseDate": "2023-01-15",
-        "warrantyExpiryDate": "2026-01-15",
-        "status": "Active",
-        "department": "Engineering"
-    },
-    {
-        "assetId": "AST-002",
-        "assetType": "Desktop",
-        "assignedUser": "Bob Smith",
-        "purchaseDate": "2022-06-20",
-        "warrantyExpiryDate": "2025-06-20",
-        "status": "Active",
-        "department": "Sales"
-    },
-    {
-        "assetId": "AST-003",
-        "assetType": "Monitor",
-        "assignedUser": "Alice Johnson",
-        "purchaseDate": "2023-03-10",
-        "warrantyExpiryDate": "2026-03-10",
-        "status": "Active",
-        "department": "Engineering"
-    },
-    {
-        "assetId": "AST-004",
-        "assetType": "Laptop",
-        "assignedUser": "Charlie Brown",
-        "purchaseDate": "2024-01-05",
-        "warrantyExpiryDate": "2027-01-05",
-        "status": "Active",
-        "department": "Marketing"
-    },
-    {
-        "assetId": "AST-005",
-        "assetType": "Server",
-        "assignedUser": "IT Department",
-        "purchaseDate": "2021-11-12",
-        "warrantyExpiryDate": "2024-11-12",
-        "status": "Maintenance",
-        "department": "IT"
-    },
-    {
-        "assetId": "AST-006",
-        "assetType": "Laptop",
-        "assignedUser": "David Wilson",
-        "purchaseDate": "2023-08-20",
-        "warrantyExpiryDate": "2026-08-20",
-        "status": "Active",
-        "department": "HR"
-    },
-    {
-        "assetId": "AST-007",
-        "assetType": "Desktop",
-        "assignedUser": "Eva Martinez",
-        "purchaseDate": "2022-12-05",
-        "warrantyExpiryDate": "2025-12-05",
-        "status": "Active",
-        "department": "Finance"
-    }
-]
+db = SQLAlchemy(app)
 
-# LICENSE_DB (ITM-F-010, F-012) - Includes complianceStatus, one entry flagged as 'Unauthorized'
-LICENSE_DB = [
-    {
-        "licenseId": "LIC-001",
-        "softwareName": "Microsoft Office 365",
-        "licenseKey": "XXXXX-XXXXX-XXXXX-001",
-        "totalSeats": 50,
-        "usedSeats": 45,
-        "expiryDate": "2024-12-31",
-        "complianceStatus": "Compliant"
-    },
-    {
-        "licenseId": "LIC-002",
-        "softwareName": "Adobe Creative Suite",
-        "licenseKey": "XXXXX-XXXXX-XXXXX-002",
-        "totalSeats": 20,
-        "usedSeats": 18,
-        "expiryDate": (datetime.now() + timedelta(days=45)).strftime("%Y-%m-%d"),
-        "complianceStatus": "Compliant"
-    },
-    {
-        "licenseId": "LIC-003",
-        "softwareName": "Windows Server License",
-        "licenseKey": "XXXXX-XXXXX-XXXXX-003",
-        "totalSeats": 10,
-        "usedSeats": 8,
-        "expiryDate": (datetime.now() + timedelta(days=75)).strftime("%Y-%m-%d"),
-        "complianceStatus": "Compliant"
-    },
-    {
-        "licenseId": "LIC-004",
-        "softwareName": "VMware vSphere",
-        "licenseKey": "XXXXX-XXXXX-XXXXX-004",
-        "totalSeats": 5,
-        "usedSeats": 5,
-        "expiryDate": (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d"),
-        "complianceStatus": "Unauthorized"
-    },
-    {
-        "licenseId": "LIC-005",
-        "softwareName": "Autodesk AutoCAD",
-        "licenseKey": "XXXXX-XXXXX-XXXXX-005",
-        "totalSeats": 15,
-        "usedSeats": 12,
-        "expiryDate": "2025-06-30",
-        "complianceStatus": "Compliant"
-    }
-]
 
-# HEALTH_DB (ITM-F-020) - At least 2 entries must breach threshold (cpuLoad > 85% or isOverheating: True)
-HEALTH_DB = [
-    {
-        "deviceId": "DEV-001",
-        "cpuLoad": 92,
-        "memoryUtil": 78,
-        "isOverheating": True,
-        "lastCheck": (datetime.now() - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
-    },
-    {
-        "deviceId": "DEV-002",
-        "cpuLoad": 45,
-        "memoryUtil": 60,
-        "isOverheating": False,
-        "lastCheck": (datetime.now() - timedelta(minutes=3)).strftime("%Y-%m-%d %H:%M:%S")
-    },
-    {
-        "deviceId": "DEV-003",
-        "cpuLoad": 35,
-        "memoryUtil": 50,
-        "isOverheating": False,
-        "lastCheck": (datetime.now() - timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S")
-    },
-    {
-        "deviceId": "DEV-004",
-        "cpuLoad": 88,
-        "memoryUtil": 85,
-        "isOverheating": False,
-        "lastCheck": (datetime.now() - timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S")
-    },
-    {
-        "deviceId": "DEV-005",
-        "cpuLoad": 25,
-        "memoryUtil": 40,
-        "isOverheating": False,
-        "lastCheck": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    },
-    {
-        "deviceId": "DEV-006",
-        "cpuLoad": 91,
-        "memoryUtil": 82,
-        "isOverheating": True,
-        "lastCheck": (datetime.now() - timedelta(minutes=4)).strftime("%Y-%m-%d %H:%M:%S")
-    }
-]
+class Asset(db.Model):
+    __tablename__ = "assets"
 
-# BACKUP_DB (ITM-F-040) - At least 2 entries must be 'Failure' or 'Missed'
-BACKUP_DB = [
-    {
-        "jobId": "BK-001",
-        "assetId": "AST-001",
-        "lastRunDate": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
-        "status": "Success",
-        "alertReason": None
-    },
-    {
-        "jobId": "BK-002",
-        "assetId": "AST-002",
-        "lastRunDate": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S"),
-        "status": "Failure",
-        "alertReason": "Disk space insufficient"
-    },
-    {
-        "jobId": "BK-003",
-        "assetId": "AST-003",
-        "lastRunDate": (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S"),
-        "status": "Success",
-        "alertReason": None
-    },
-    {
-        "jobId": "BK-004",
-        "assetId": "AST-004",
-        "lastRunDate": (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d %H:%M:%S"),
-        "status": "Missed",
-        "alertReason": "Scheduled time conflict"
-    },
-    {
-        "jobId": "BK-005",
-        "assetId": "AST-005",
-        "lastRunDate": (datetime.now() - timedelta(hours=12)).strftime("%Y-%m-%d %H:%M:%S"),
-        "status": "Success",
-        "alertReason": None
-    },
-    {
-        "jobId": "BK-006",
-        "assetId": "AST-006",
-        "lastRunDate": (datetime.now() - timedelta(days=4)).strftime("%Y-%m-%d %H:%M:%S"),
-        "status": "Failure",
-        "alertReason": "Network timeout"
-    }
-]
+    id = db.Column(db.Integer, primary_key=True)
+    asset_id = db.Column(db.String(64), unique=True, nullable=False)
+    asset_type = db.Column(db.String(64), nullable=False)
+    assigned_user = db.Column(db.String(128), nullable=False)
+    purchase_date = db.Column(db.Date, nullable=False)
+    warranty_expiry_date = db.Column(db.Date, nullable=False)
+    status = db.Column(db.String(32), default="Active", nullable=False)
+    department = db.Column(db.String(64), default="IT", nullable=False)
 
-# NETWORK_DB (ITM-F-030) - At least 2 entries must be flagged (isDowntime: True or abnormalTraffic: True)
-NETWORK_DB = [
-    {
-        "deviceId": "NET-001",
-        "bandwidthMB": 450,
-        "isDowntime": False,
-        "abnormalTraffic": True
-    },
-    {
-        "deviceId": "NET-002",
-        "bandwidthMB": 120,
-        "isDowntime": False,
-        "abnormalTraffic": False
-    },
-    {
-        "deviceId": "NET-003",
-        "bandwidthMB": 0,
-        "isDowntime": True,
-        "abnormalTraffic": False
-    },
-    {
-        "deviceId": "NET-004",
-        "bandwidthMB": 280,
-        "isDowntime": False,
-        "abnormalTraffic": False
-    },
-    {
-        "deviceId": "NET-005",
-        "bandwidthMB": 350,
-        "isDowntime": False,
-        "abnormalTraffic": False
-    },
-    {
-        "deviceId": "NET-006",
-        "bandwidthMB": 520,
-        "isDowntime": False,
-        "abnormalTraffic": True
-    }
-]
+    def to_dict(self):
+        return {
+            "assetId": self.asset_id,
+            "assetType": self.asset_type,
+            "assignedUser": self.assigned_user,
+            "purchaseDate": self.purchase_date.strftime("%Y-%m-%d"),
+            "warrantyExpiryDate": self.warranty_expiry_date.strftime("%Y-%m-%d"),
+            "status": self.status,
+            "department": self.department,
+        }
 
-# AUDIT_LOG_DB (ITM-SR-004)
-AUDIT_LOG_DB = []
 
-# External Integration Status (ITM-F-041)
-INTEGRATION_STATUS = {
-    "licenseVendorAPI": {"name": "License Vendor API", "status": "Active", "lastCheck": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
-    "networkSNMPAgent": {"name": "Network SNMP Agent", "status": "Active", "lastCheck": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
-    "backupToolX": {"name": "Backup Tool X", "status": "Inactive", "lastCheck": (datetime.now() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")},
-    "monitoringService": {"name": "Monitoring Service", "status": "Active", "lastCheck": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-}
+class License(db.Model):
+    __tablename__ = "licenses"
 
-# Mock user database for authentication
-USER_DB = {
-    "admin": {"password": "admin123", "role": "Admin", "name": "Administrator"},
-    "itstaff": {"password": "it123", "role": "IT Staff", "name": "IT Staff User"},
-    "employee": {"password": "emp123", "role": "Employee", "name": "Alice Johnson"}
-}
+    id = db.Column(db.Integer, primary_key=True)
+    license_id = db.Column(db.String(64), unique=True, nullable=False)
+    software_name = db.Column(db.String(128), nullable=False)
+    license_key = db.Column(db.String(128), nullable=False)
+    total_seats = db.Column(db.Integer, nullable=False)
+    used_seats = db.Column(db.Integer, default=0, nullable=False)
+    expiry_date = db.Column(db.Date, nullable=False)
+    compliance_status = db.Column(db.String(32), default="Compliant", nullable=False)
 
-# Current user session
+    def to_dict(self):
+        return {
+            "licenseId": self.license_id,
+            "softwareName": self.software_name,
+            "licenseKey": self.license_key,
+            "totalSeats": self.total_seats,
+            "usedSeats": self.used_seats,
+            "expiryDate": self.expiry_date.strftime("%Y-%m-%d"),
+            "complianceStatus": self.compliance_status,
+        }
+
+
+class HardwareHealthRecord(db.Model):
+    __tablename__ = "hardware_health_records"
+
+    id = db.Column(db.Integer, primary_key=True)
+    device_id = db.Column(db.String(64), unique=True, nullable=False)
+    cpu_load = db.Column(db.Integer, nullable=False)
+    memory_util = db.Column(db.Integer, nullable=False)
+    is_overheating = db.Column(db.Boolean, default=False, nullable=False)
+    last_check = db.Column(db.DateTime, nullable=False)
+
+    def to_dict(self):
+        return {
+            "deviceId": self.device_id,
+            "cpuLoad": self.cpu_load,
+            "memoryUtil": self.memory_util,
+            "isOverheating": self.is_overheating,
+            "lastCheck": self.last_check.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+
+class BackupJob(db.Model):
+    __tablename__ = "backup_jobs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.String(64), unique=True, nullable=False)
+    asset_id = db.Column(db.String(64), nullable=False)
+    last_run_date = db.Column(db.DateTime, nullable=False)
+    status = db.Column(db.String(32), nullable=False)
+    alert_reason = db.Column(db.String(256))
+
+    def to_dict(self):
+        return {
+            "jobId": self.job_id,
+            "assetId": self.asset_id,
+            "lastRunDate": self.last_run_date.strftime("%Y-%m-%d %H:%M:%S"),
+            "status": self.status,
+            "alertReason": self.alert_reason,
+        }
+
+
+class NetworkDevice(db.Model):
+    __tablename__ = "network_devices"
+
+    id = db.Column(db.Integer, primary_key=True)
+    device_id = db.Column(db.String(64), unique=True, nullable=False)
+    bandwidth_mb = db.Column(db.Integer, nullable=False)
+    is_downtime = db.Column(db.Boolean, default=False, nullable=False)
+    abnormal_traffic = db.Column(db.Boolean, default=False, nullable=False)
+
+    def to_dict(self):
+        return {
+            "deviceId": self.device_id,
+            "bandwidthMB": self.bandwidth_mb,
+            "isDowntime": self.is_downtime,
+            "abnormalTraffic": self.abnormal_traffic,
+        }
+
+
+class AuditLog(db.Model):
+    __tablename__ = "audit_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    user_role = db.Column(db.String(32), nullable=False)
+    action = db.Column(db.String(64), nullable=False)
+    details = db.Column(db.String(256), nullable=False)
+
+    def to_dict(self):
+        return {
+            "timestamp": self.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "userRole": self.user_role,
+            "action": self.action,
+            "details": self.details,
+        }
+
+
+class IntegrationStatus(db.Model):
+    __tablename__ = "integration_statuses"
+
+    id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(64), unique=True, nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    status = db.Column(db.String(32), nullable=False)
+    last_check = db.Column(db.DateTime, nullable=False)
+
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "status": self.status,
+            "lastCheck": self.last_check.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+
+class User(db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(64), unique=True, nullable=False)
+    password = db.Column(db.String(128), nullable=False)
+    role = db.Column(db.String(32), nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    requires_mfa = db.Column(db.Boolean, default=False, nullable=False)
+
+    def to_dict(self):
+        return {
+            "username": self.username,
+            "role": self.role,
+            "name": self.name,
+            "requiresMFA": self.requires_mfa,
+        }
+
+
+# Current user session (mock session storage)
 current_role = None
 current_user = None
+current_user_name = None
 is_authenticated = False
 
-# ==================== HELPER FUNCTIONS ====================
 
-def add_audit_log(action, details, user_role):
-    """Add entry to audit log"""
-    log_entry = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "userRole": user_role,
-        "action": action,
-        "details": details
-    }
-    AUDIT_LOG_DB.append(log_entry)
-    return log_entry
+def _parse_date(date_str, field_name):
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid date format for {field_name}. Expected YYYY-MM-DD.")
+
+
+def _parse_datetime(dt_str, field_name):
+    try:
+        return datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid datetime format for {field_name}. Expected YYYY-MM-DD HH:MM:SS.")
+
+
+def add_audit_log(action, details, user_role, commit=True):
+    """Persist entry to audit log."""
+    log_entry = AuditLog(action=action, details=details, user_role=user_role, timestamp=datetime.utcnow())
+    db.session.add(log_entry)
+    if commit:
+        db.session.commit()
+    return log_entry.to_dict()
+
 
 def can_perform_crud(role):
-    """Check if role can perform CRUD operations"""
+    """Check if role can perform CRUD operations."""
     return role in ["Admin", "IT Staff"]
 
+
 def calculate_dashboard_metrics():
-    """Calculate dashboard metrics from all databases"""
-    total_assets = len(ASSET_DB)
-    
-    # Licenses expiring in next 90 days
-    today = datetime.now().date()
+    """Calculate dashboard metrics from all database tables."""
+    total_assets = Asset.query.count()
+
+    today = date.today()
     expiry_threshold = today + timedelta(days=90)
-    licenses_expiring_soon = sum(
-        1 for lic in LICENSE_DB 
-        if datetime.strptime(lic["expiryDate"], "%Y-%m-%d").date() <= expiry_threshold
+    licenses_expiring_soon = (
+        License.query.filter(License.expiry_date <= expiry_threshold).count()
     )
-    
-    # Hardware health alerts (CPU > 85% or overheating)
-    hardware_alerts = sum(
-        1 for dev in HEALTH_DB 
-        if dev["cpuLoad"] > 85 or dev["isOverheating"]
-    )
-    
-    # Backup failures
-    backup_failures = sum(
-        1 for job in BACKUP_DB 
-        if job["status"] in ["Failure", "Missed"]
-    )
-    
-    # Network events
-    network_events = sum(
-        1 for net in NETWORK_DB 
-        if net["isDowntime"] or net["abnormalTraffic"]
-    )
-    
+
+    hardware_alerts = HardwareHealthRecord.query.filter(
+        or_(HardwareHealthRecord.cpu_load > 85, HardwareHealthRecord.is_overheating.is_(True))
+    ).count()
+
+    backup_failures = BackupJob.query.filter(BackupJob.status.in_(["Failure", "Missed"])).count()
+
+    network_events = NetworkDevice.query.filter(
+        or_(NetworkDevice.is_downtime.is_(True), NetworkDevice.abnormal_traffic.is_(True))
+    ).count()
+
     return {
         "totalAssets": total_assets,
         "licensesExpiringSoon": licenses_expiring_soon,
         "hardwareHealthAlerts": hardware_alerts,
         "backupFailures": backup_failures,
-        "networkEvents": network_events
+        "networkEvents": network_events,
     }
+
+
+def seed_initial_data():
+    """Populate the database with initial records if empty."""
+    seeded = False
+
+    if Asset.query.count() == 0:
+        assets = [
+            Asset(
+                asset_id="AST-001",
+                asset_type="Laptop",
+                assigned_user="Alice Johnson",
+                purchase_date=date(2023, 1, 15),
+                warranty_expiry_date=date(2026, 1, 15),
+                status="Active",
+                department="Engineering",
+            ),
+            Asset(
+                asset_id="AST-002",
+                asset_type="Desktop",
+                assigned_user="Bob Smith",
+                purchase_date=date(2022, 6, 20),
+                warranty_expiry_date=date(2025, 6, 20),
+                status="Active",
+                department="Sales",
+            ),
+            Asset(
+                asset_id="AST-003",
+                asset_type="Monitor",
+                assigned_user="Alice Johnson",
+                purchase_date=date(2023, 3, 10),
+                warranty_expiry_date=date(2026, 3, 10),
+                status="Active",
+                department="Engineering",
+            ),
+            Asset(
+                asset_id="AST-004",
+                asset_type="Laptop",
+                assigned_user="Charlie Brown",
+                purchase_date=date(2024, 1, 5),
+                warranty_expiry_date=date(2027, 1, 5),
+                status="Active",
+                department="Marketing",
+            ),
+            Asset(
+                asset_id="AST-005",
+                asset_type="Server",
+                assigned_user="IT Department",
+                purchase_date=date(2021, 11, 12),
+                warranty_expiry_date=date(2024, 11, 12),
+                status="Maintenance",
+                department="IT",
+            ),
+            Asset(
+                asset_id="AST-006",
+                asset_type="Laptop",
+                assigned_user="David Wilson",
+                purchase_date=date(2023, 8, 20),
+                warranty_expiry_date=date(2026, 8, 20),
+                status="Active",
+                department="HR",
+            ),
+            Asset(
+                asset_id="AST-007",
+                asset_type="Desktop",
+                assigned_user="Eva Martinez",
+                purchase_date=date(2022, 12, 5),
+                warranty_expiry_date=date(2025, 12, 5),
+                status="Active",
+                department="Finance",
+            ),
+        ]
+        db.session.add_all(assets)
+        seeded = True
+
+    if License.query.count() == 0:
+        licenses = [
+            License(
+                license_id="LIC-001",
+                software_name="Microsoft Office 365",
+                license_key="XXXXX-XXXXX-XXXXX-001",
+                total_seats=50,
+                used_seats=45,
+                expiry_date=date(2024, 12, 31),
+                compliance_status="Compliant",
+            ),
+            License(
+                license_id="LIC-002",
+                software_name="Adobe Creative Suite",
+                license_key="XXXXX-XXXXX-XXXXX-002",
+                total_seats=20,
+                used_seats=18,
+                expiry_date=(datetime.utcnow() + timedelta(days=45)).date(),
+                compliance_status="Compliant",
+            ),
+            License(
+                license_id="LIC-003",
+                software_name="Windows Server License",
+                license_key="XXXXX-XXXXX-XXXXX-003",
+                total_seats=10,
+                used_seats=8,
+                expiry_date=(datetime.utcnow() + timedelta(days=75)).date(),
+                compliance_status="Compliant",
+            ),
+            License(
+                license_id="LIC-004",
+                software_name="VMware vSphere",
+                license_key="XXXXX-XXXXX-XXXXX-004",
+                total_seats=5,
+                used_seats=5,
+                expiry_date=(datetime.utcnow() + timedelta(days=30)).date(),
+                compliance_status="Unauthorized",
+            ),
+            License(
+                license_id="LIC-005",
+                software_name="Autodesk AutoCAD",
+                license_key="XXXXX-XXXXX-XXXXX-005",
+                total_seats=15,
+                used_seats=12,
+                expiry_date=date(2025, 6, 30),
+                compliance_status="Compliant",
+            ),
+        ]
+        db.session.add_all(licenses)
+        seeded = True
+
+    if HardwareHealthRecord.query.count() == 0:
+        now = datetime.utcnow()
+        hardware_records = [
+            HardwareHealthRecord(
+                device_id="DEV-001",
+                cpu_load=92,
+                memory_util=78,
+                is_overheating=True,
+                last_check=now - timedelta(minutes=5),
+            ),
+            HardwareHealthRecord(
+                device_id="DEV-002",
+                cpu_load=45,
+                memory_util=60,
+                is_overheating=False,
+                last_check=now - timedelta(minutes=3),
+            ),
+            HardwareHealthRecord(
+                device_id="DEV-003",
+                cpu_load=35,
+                memory_util=50,
+                is_overheating=False,
+                last_check=now - timedelta(minutes=2),
+            ),
+            HardwareHealthRecord(
+                device_id="DEV-004",
+                cpu_load=88,
+                memory_util=85,
+                is_overheating=False,
+                last_check=now - timedelta(minutes=1),
+            ),
+            HardwareHealthRecord(
+                device_id="DEV-005",
+                cpu_load=25,
+                memory_util=40,
+                is_overheating=False,
+                last_check=now,
+            ),
+            HardwareHealthRecord(
+                device_id="DEV-006",
+                cpu_load=91,
+                memory_util=82,
+                is_overheating=True,
+                last_check=now - timedelta(minutes=4),
+            ),
+        ]
+        db.session.add_all(hardware_records)
+        seeded = True
+
+    if BackupJob.query.count() == 0:
+        now = datetime.utcnow()
+        backup_jobs = [
+            BackupJob(
+                job_id="BK-001",
+                asset_id="AST-001",
+                last_run_date=now - timedelta(days=1),
+                status="Success",
+                alert_reason=None,
+            ),
+            BackupJob(
+                job_id="BK-002",
+                asset_id="AST-002",
+                last_run_date=now - timedelta(days=2),
+                status="Failure",
+                alert_reason="Disk space insufficient",
+            ),
+            BackupJob(
+                job_id="BK-003",
+                asset_id="AST-003",
+                last_run_date=now - timedelta(days=3),
+                status="Success",
+                alert_reason=None,
+            ),
+            BackupJob(
+                job_id="BK-004",
+                asset_id="AST-004",
+                last_run_date=now - timedelta(days=5),
+                status="Missed",
+                alert_reason="Scheduled time conflict",
+            ),
+            BackupJob(
+                job_id="BK-005",
+                asset_id="AST-005",
+                last_run_date=now - timedelta(hours=12),
+                status="Success",
+                alert_reason=None,
+            ),
+            BackupJob(
+                job_id="BK-006",
+                asset_id="AST-006",
+                last_run_date=now - timedelta(days=4),
+                status="Failure",
+                alert_reason="Network timeout",
+            ),
+        ]
+        db.session.add_all(backup_jobs)
+        seeded = True
+
+    if NetworkDevice.query.count() == 0:
+        network_devices = [
+            NetworkDevice(device_id="NET-001", bandwidth_mb=450, is_downtime=False, abnormal_traffic=True),
+            NetworkDevice(device_id="NET-002", bandwidth_mb=120, is_downtime=False, abnormal_traffic=False),
+            NetworkDevice(device_id="NET-003", bandwidth_mb=0, is_downtime=True, abnormal_traffic=False),
+            NetworkDevice(device_id="NET-004", bandwidth_mb=280, is_downtime=False, abnormal_traffic=False),
+            NetworkDevice(device_id="NET-005", bandwidth_mb=350, is_downtime=False, abnormal_traffic=False),
+            NetworkDevice(device_id="NET-006", bandwidth_mb=520, is_downtime=False, abnormal_traffic=True),
+        ]
+        db.session.add_all(network_devices)
+        seeded = True
+
+    if IntegrationStatus.query.count() == 0:
+        now = datetime.utcnow()
+        integrations = [
+            IntegrationStatus(slug="licenseVendorAPI", name="License Vendor API", status="Active", last_check=now),
+            IntegrationStatus(slug="networkSNMPAgent", name="Network SNMP Agent", status="Active", last_check=now),
+            IntegrationStatus(slug="backupToolX", name="Backup Tool X", status="Inactive", last_check=now - timedelta(hours=2)),
+            IntegrationStatus(slug="monitoringService", name="Monitoring Service", status="Active", last_check=now),
+        ]
+        db.session.add_all(integrations)
+        seeded = True
+
+    if User.query.count() == 0:
+        users = [
+            User(username="admin", password="admin123", role="Admin", name="Administrator", requires_mfa=True),
+            User(username="itstaff", password="it123", role="IT Staff", name="IT Staff User", requires_mfa=False),
+            User(username="employee", password="emp123", role="Employee", name="Alice Johnson", requires_mfa=False),
+        ]
+        db.session.add_all(users)
+        seeded = True
+
+    if seeded:
+        add_audit_log("SYSTEM", "IIMS System seeded", "System", commit=False)
+        db.session.commit()
+
+
+def initialize_database(reset=False):
+    """Create tables and seed data."""
+    with app.app_context():
+        if reset:
+            db.drop_all()
+        db.create_all()
+        seed_initial_data()
+
+
+# Ensure database is initialized when the module is imported
+initialize_database()
+
 
 # ==================== API ENDPOINTS ====================
 
@@ -355,14 +540,14 @@ def dashboard_metrics():
 @app.route('/api/assets', methods=['GET', 'POST'])
 def assets():
     """CRUD operations for assets"""
-    global current_role
+    global current_role, current_user_name
     
     if request.method == 'GET':
-        # Filter by assignedUser if Employee role
-        if current_role == "Employee":
-            filtered_assets = [a for a in ASSET_DB if a["assignedUser"] == "Alice Johnson"]
-            return jsonify(filtered_assets)
-        return jsonify(ASSET_DB)
+        if current_role == "Employee" and current_user_name:
+            records = Asset.query.filter_by(assigned_user=current_user_name).all()
+        else:
+            records = Asset.query.all()
+        return jsonify([asset.to_dict() for asset in records])
     
     elif request.method == 'POST':
         if not can_perform_crud(current_role):
@@ -372,43 +557,63 @@ def assets():
         action = data.get('action')
         
         if action == 'create':
-            new_asset = {
-                "assetId": data.get('assetId', f"AST-{str(uuid.uuid4())[:8]}"),
-                "assetType": data.get('assetType'),
-                "assignedUser": data.get('assignedUser'),
-                "purchaseDate": data.get('purchaseDate'),
-                "warrantyExpiryDate": data.get('warrantyExpiryDate'),
-                "status": data.get('status', 'Active'),
-                "department": data.get('department', 'IT')
-            }
-            ASSET_DB.append(new_asset)
-            add_audit_log("CREATE", f"Created asset {new_asset['assetId']}", current_role)
-            return jsonify(new_asset), 201
+            try:
+                purchase_date = _parse_date(data.get('purchaseDate'), 'purchaseDate')
+                warranty_expiry_date = _parse_date(data.get('warrantyExpiryDate'), 'warrantyExpiryDate')
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+
+            asset = Asset(
+                asset_id=data.get('assetId', f"AST-{str(uuid.uuid4())[:8]}"),
+                asset_type=data.get('assetType'),
+                assigned_user=data.get('assignedUser'),
+                purchase_date=purchase_date,
+                warranty_expiry_date=warranty_expiry_date,
+                status=data.get('status', 'Active'),
+                department=data.get('department', 'IT'),
+            )
+            db.session.add(asset)
+            db.session.commit()
+            add_audit_log("CREATE", f"Created asset {asset.asset_id}", current_role)
+            return jsonify(asset.to_dict()), 201
         
         elif action == 'update':
             asset_id = data.get('assetId')
-            for i, asset in enumerate(ASSET_DB):
-                if asset["assetId"] == asset_id:
-                    ASSET_DB[i].update({
-                        "assetType": data.get('assetType', asset["assetType"]),
-                        "assignedUser": data.get('assignedUser', asset["assignedUser"]),
-                        "purchaseDate": data.get('purchaseDate', asset["purchaseDate"]),
-                        "warrantyExpiryDate": data.get('warrantyExpiryDate', asset["warrantyExpiryDate"]),
-                        "status": data.get('status', asset["status"]),
-                        "department": data.get('department', asset.get("department", "IT"))
-                    })
-                    add_audit_log("UPDATE", f"Updated asset {asset_id}", current_role)
-                    return jsonify(ASSET_DB[i])
-            return jsonify({"error": "Asset not found"}), 404
+            asset = Asset.query.filter_by(asset_id=asset_id).first()
+            if not asset:
+                return jsonify({"error": "Asset not found"}), 404
+
+            if 'assetType' in data:
+                asset.asset_type = data['assetType']
+            if 'assignedUser' in data:
+                asset.assigned_user = data['assignedUser']
+            if 'purchaseDate' in data:
+                try:
+                    asset.purchase_date = _parse_date(data['purchaseDate'], 'purchaseDate')
+                except ValueError as exc:
+                    return jsonify({"error": str(exc)}), 400
+            if 'warrantyExpiryDate' in data:
+                try:
+                    asset.warranty_expiry_date = _parse_date(data['warrantyExpiryDate'], 'warrantyExpiryDate')
+                except ValueError as exc:
+                    return jsonify({"error": str(exc)}), 400
+            if 'status' in data:
+                asset.status = data['status']
+            if 'department' in data:
+                asset.department = data['department']
+            db.session.commit()
+            add_audit_log("UPDATE", f"Updated asset {asset_id}", current_role)
+            return jsonify(asset.to_dict())
         
         elif action == 'delete':
             asset_id = data.get('assetId')
-            for i, asset in enumerate(ASSET_DB):
-                if asset["assetId"] == asset_id:
-                    deleted = ASSET_DB.pop(i)
-                    add_audit_log("DELETE", f"Deleted asset {asset_id}", current_role)
-                    return jsonify(deleted)
-            return jsonify({"error": "Asset not found"}), 404
+            asset = Asset.query.filter_by(asset_id=asset_id).first()
+            if not asset:
+                return jsonify({"error": "Asset not found"}), 404
+            db.session.delete(asset)
+            db.session.commit()
+            add_audit_log("DELETE", f"Deleted asset {asset_id}", current_role)
+            return jsonify(asset.to_dict())
 
 @app.route('/api/licenses', methods=['GET', 'POST'])
 def licenses():
@@ -416,7 +621,8 @@ def licenses():
     global current_role
     
     if request.method == 'GET':
-        return jsonify(LICENSE_DB)
+        licenses = License.query.all()
+        return jsonify([license.to_dict() for license in licenses])
     
     elif request.method == 'POST':
         if not can_perform_crud(current_role):
@@ -426,58 +632,77 @@ def licenses():
         action = data.get('action')
         
         if action == 'create':
-            new_license = {
-                "licenseId": data.get('licenseId', f"LIC-{str(uuid.uuid4())[:8]}"),
-                "softwareName": data.get('softwareName'),
-                "licenseKey": data.get('licenseKey'),
-                "totalSeats": data.get('totalSeats'),
-                "usedSeats": data.get('usedSeats', 0),
-                "expiryDate": data.get('expiryDate'),
-                "complianceStatus": data.get('complianceStatus', 'Compliant')
-            }
-            LICENSE_DB.append(new_license)
-            add_audit_log("CREATE", f"Created license {new_license['licenseId']}", current_role)
-            return jsonify(new_license), 201
+            try:
+                expiry_date = _parse_date(data.get('expiryDate'), 'expiryDate')
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+
+            license_obj = License(
+                license_id=data.get('licenseId', f"LIC-{str(uuid.uuid4())[:8]}"),
+                software_name=data.get('softwareName'),
+                license_key=data.get('licenseKey'),
+                total_seats=data.get('totalSeats'),
+                used_seats=data.get('usedSeats', 0),
+                expiry_date=expiry_date,
+                compliance_status=data.get('complianceStatus', 'Compliant'),
+            )
+            db.session.add(license_obj)
+            db.session.commit()
+            add_audit_log("CREATE", f"Created license {license_obj.license_id}", current_role)
+            return jsonify(license_obj.to_dict()), 201
         
         elif action == 'update':
             license_id = data.get('licenseId')
-            for i, lic in enumerate(LICENSE_DB):
-                if lic["licenseId"] == license_id:
-                    LICENSE_DB[i].update({
-                        "softwareName": data.get('softwareName', lic["softwareName"]),
-                        "licenseKey": data.get('licenseKey', lic["licenseKey"]),
-                        "totalSeats": data.get('totalSeats', lic["totalSeats"]),
-                        "usedSeats": data.get('usedSeats', lic["usedSeats"]),
-                        "expiryDate": data.get('expiryDate', lic["expiryDate"]),
-                        "complianceStatus": data.get('complianceStatus', lic.get("complianceStatus", "Compliant"))
-                    })
-                    add_audit_log("UPDATE", f"Updated license {license_id}", current_role)
-                    return jsonify(LICENSE_DB[i])
-            return jsonify({"error": "License not found"}), 404
+            license_obj = License.query.filter_by(license_id=license_id).first()
+            if not license_obj:
+                return jsonify({"error": "License not found"}), 404
+
+            if 'softwareName' in data:
+                license_obj.software_name = data['softwareName']
+            if 'licenseKey' in data:
+                license_obj.license_key = data['licenseKey']
+            if 'totalSeats' in data:
+                license_obj.total_seats = data['totalSeats']
+            if 'usedSeats' in data:
+                license_obj.used_seats = data['usedSeats']
+            if 'expiryDate' in data:
+                try:
+                    license_obj.expiry_date = _parse_date(data['expiryDate'], 'expiryDate')
+                except ValueError as exc:
+                    return jsonify({"error": str(exc)}), 400
+            if 'complianceStatus' in data:
+                license_obj.compliance_status = data['complianceStatus']
+            db.session.commit()
+            add_audit_log("UPDATE", f"Updated license {license_id}", current_role)
+            return jsonify(license_obj.to_dict())
         
         elif action == 'delete':
             license_id = data.get('licenseId')
-            for i, lic in enumerate(LICENSE_DB):
-                if lic["licenseId"] == license_id:
-                    deleted = LICENSE_DB.pop(i)
-                    add_audit_log("DELETE", f"Deleted license {license_id}", current_role)
-                    return jsonify(deleted)
-            return jsonify({"error": "License not found"}), 404
+            license_obj = License.query.filter_by(license_id=license_id).first()
+            if not license_obj:
+                return jsonify({"error": "License not found"}), 404
+            db.session.delete(license_obj)
+            db.session.commit()
+            add_audit_log("DELETE", f"Deleted license {license_id}", current_role)
+            return jsonify(license_obj.to_dict())
 
 @app.route('/api/monitoring/hardware', methods=['GET'])
 def hardware_health():
     """Get hardware health monitoring data"""
-    return jsonify(HEALTH_DB)
+    records = HardwareHealthRecord.query.all()
+    return jsonify([record.to_dict() for record in records])
 
 @app.route('/api/monitoring/network', methods=['GET'])
 def network_usage():
     """Get network usage monitoring data"""
-    return jsonify(NETWORK_DB)
+    devices = NetworkDevice.query.all()
+    return jsonify([device.to_dict() for device in devices])
 
 @app.route('/api/monitoring/backup', methods=['GET'])
 def backup_recovery():
     """Get backup and recovery monitoring data"""
-    return jsonify(BACKUP_DB)
+    jobs = BackupJob.query.all()
+    return jsonify([job.to_dict() for job in jobs])
 
 @app.route('/api/audit-log', methods=['GET'])
 def audit_log():
@@ -485,12 +710,13 @@ def audit_log():
     global current_role
     if current_role not in ["Admin", "IT Staff"]:
         return jsonify({"error": "Insufficient permissions"}), 403
-    return jsonify(AUDIT_LOG_DB)
+    logs = AuditLog.query.order_by(AuditLog.timestamp.desc()).all()
+    return jsonify([log.to_dict() for log in logs])
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     """User authentication endpoint (ITM-SR-002) with MFA for Admin"""
-    global current_role, current_user, is_authenticated
+    global current_role, current_user, current_user_name, is_authenticated
     data = request.json
     username = data.get('username', '').lower()
     password = data.get('password', '')
@@ -505,39 +731,34 @@ def login():
         }), 400
     
     # Check credentials
-    if username in USER_DB and USER_DB[username]["password"] == password:
-        # Admin requires MFA (mock code: '123456')
-        if USER_DB[username]["role"] == "Admin":
-            if not mfa_code or mfa_code != '123456':
-                return jsonify({
-                    "success": False,
-                    "requiresMFA": True,
-                    "message": "MFA code required for Admin login. Use code: 123456"
-                }), 401
-        
-        current_user = username
-        current_role = USER_DB[username]["role"]
-        is_authenticated = True
-        add_audit_log("LOGIN", f"User {username} logged in", current_role)
-        return jsonify({
-            "success": True,
-            "role": current_role,
-            "name": USER_DB[username]["name"]
-        })
-    else:
-        return jsonify({
-            "success": False,
-            "message": "Invalid username or password"
-        }), 401
+    user = User.query.filter_by(username=username).first()
+    if not user or user.password != password:
+        return jsonify({"success": False, "message": "Invalid username or password"}), 401
+
+    if user.requires_mfa:
+        if not mfa_code or mfa_code != '123456':
+            return jsonify({
+                "success": False,
+                "requiresMFA": True,
+                "message": "MFA code required for Admin login. Use code: 123456"
+            }), 401
+
+    current_user = username
+    current_role = user.role
+    current_user_name = user.name
+    is_authenticated = True
+    add_audit_log("LOGIN", f"User {username} logged in", current_role)
+    return jsonify({"success": True, "role": current_role, "name": user.name})
 
 @app.route('/api/auth/logout', methods=['POST'])
 def logout():
     """User logout endpoint"""
-    global current_user, current_role, is_authenticated
+    global current_user, current_role, current_user_name, is_authenticated
     if current_user:
         add_audit_log("LOGOUT", f"User {current_user} logged out", current_role)
     current_user = None
     current_role = None
+    current_user_name = None
     is_authenticated = False
     return jsonify({"success": True})
 
@@ -559,27 +780,24 @@ def backup_verify():
         return jsonify({"error": "Insufficient permissions"}), 403
     
     # Find failed/missed backup jobs
-    failed_jobs = [job for job in BACKUP_DB if job["status"] in ["Failure", "Missed"]]
+    failed_jobs = BackupJob.query.filter(BackupJob.status.in_(["Failure", "Missed"])).all()
     
     # Simulate verification process and reset status to 'Under Investigation'
     verification_results = []
     for job in failed_jobs:
-        # Update job status to 'Under Investigation'
-        for i, backup_job in enumerate(BACKUP_DB):
-            if backup_job["jobId"] == job["jobId"]:
-                BACKUP_DB[i]["status"] = "Under Investigation"
-                break
-        
+        previous_status = job.status
+        job.status = "Under Investigation"
         verification_results.append({
-            "jobId": job["jobId"],
-            "assetId": job["assetId"],
-            "previousStatus": job["status"],
+            "jobId": job.job_id,
+            "assetId": job.asset_id,
+            "previousStatus": previous_status,
             "newStatus": "Under Investigation",
-            "alertReason": job["alertReason"],
+            "alertReason": job.alert_reason,
             "verificationStatus": "Under Investigation",
             "recommendedAction": "Review backup configuration and retry backup job"
         })
     
+    db.session.commit()
     add_audit_log("VERIFY", f"Backup verification run - {len(failed_jobs)} jobs set to 'Under Investigation'", current_role)
     
     return jsonify({
@@ -591,29 +809,29 @@ def backup_verify():
 @app.route('/api/integrations/status', methods=['GET'])
 def integration_status():
     """Get external integration status"""
-    return jsonify(INTEGRATION_STATUS)
+    statuses = IntegrationStatus.query.all()
+    return jsonify({status.slug: status.to_dict() for status in statuses})
 
 @app.route('/api/analytics/assets-by-department', methods=['GET'])
 def assets_by_department():
     """Get asset distribution by department for analytics (ITM-F-061)"""
     department_counts = {}
-    for asset in ASSET_DB:
-        dept = asset.get("department", "Unknown")
+    for asset in Asset.query.all():
+        dept = asset.department or "Unknown"
         department_counts[dept] = department_counts.get(dept, 0) + 1
-    
     return jsonify(department_counts)
 
 @app.route('/api/assets/<asset_id>/qr', methods=['GET'])
 def generate_qr(asset_id):
     """Generate QR code data for asset (ITM-F-001)"""
-    asset = next((a for a in ASSET_DB if a["assetId"] == asset_id), None)
+    asset = Asset.query.filter_by(asset_id=asset_id).first()
     if not asset:
         return jsonify({"error": "Asset not found"}), 404
     
     # Generate mock QR code data
     qr_data = {
         "assetId": asset_id,
-        "assetType": asset["assetType"],
+        "assetType": asset.asset_type,
         "url": f"http://localhost:5000/assets/{asset_id}",
         "message": "In a real application, scanning this QR code would link to the asset's details page."
     }
@@ -628,7 +846,7 @@ def index():
     return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'index.html')
 
 if __name__ == '__main__':
-    # Initialize audit log with startup entry
-    add_audit_log("SYSTEM", "IIMS System Started", "System")
+    with app.app_context():
+        add_audit_log("SYSTEM", "IIMS System Started", "System")
     app.run(debug=True, port=5000)
 

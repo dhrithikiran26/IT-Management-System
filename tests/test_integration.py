@@ -1,6 +1,6 @@
 import unittest
 import json
-from server import app
+from server import app, initialize_database
 
 class IIMSIntegrationTestCase(unittest.TestCase):
     """Integration tests for IIMS application"""
@@ -14,6 +14,8 @@ class IIMSIntegrationTestCase(unittest.TestCase):
         server.current_role = None
         server.current_user = None
         server.is_authenticated = False
+        with app.app_context():
+            initialize_database(reset=True)
     
     def test_full_workflow(self):
         """Test complete workflow: login -> get data -> logout"""

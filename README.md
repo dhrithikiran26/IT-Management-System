@@ -17,7 +17,7 @@ A comprehensive full-stack application prototype for managing IT infrastructure 
 
 - **Backend**: Python 3.10+ with Flask
 - **Frontend**: HTML5, Tailwind CSS, Vanilla JavaScript
-- **Database**: In-memory data structures (prototype)
+- **Database**: SQLite (default) via SQLAlchemy ORM (configurable)
 - **Containerization**: Docker
 - **CI/CD**: GitHub Actions
 
@@ -30,12 +30,23 @@ A comprehensive full-stack application prototype for managing IT infrastructure 
    pip install -r requirements.txt
    ```
 
-2. **Run the server:**
+2. **(Optional) Configure the database connection:**
+   - By default the app uses a local SQLite file `ims.db` in the project root.
+   - Override the location or switch engines by setting `IIMS_DATABASE_URL`, e.g.:
+     ```bash
+     # Windows PowerShell
+     set IIMS_DATABASE_URL=sqlite:///C:/data/iims.db
+
+     # macOS/Linux
+     export IIMS_DATABASE_URL=postgresql+psycopg2://user:pass@localhost/iims
+     ```
+
+3. **Run the server:**
    ```bash
    python server.py
    ```
 
-3. **Access the application:**
+4. **Access the application:**
    Open `http://localhost:5000` in your browser
 
 ### Docker Deployment
@@ -62,6 +73,7 @@ A comprehensive full-stack application prototype for managing IT infrastructure 
 Run the test suite:
 
 ```bash
+set IIMS_DATABASE_URL=sqlite:///test_ims.db  # optional isolated DB
 pytest tests/ -v
 ```
 
@@ -70,6 +82,13 @@ With coverage:
 ```bash
 pytest tests/ -v --cov=server --cov-report=html
 ```
+
+## Database
+
+- Tables are managed with SQLAlchemy and created automatically on startup; demo data is seeded the first time or whenever the database is empty.
+- To reset the demo dataset, delete the SQLite file (default `ims.db`) or call `initialize_database(reset=True)` from a Flask application context.
+- The default user accounts now live in the `users` table; update them through SQL or extend the API for self-service management.
+- For production usage, point `IIMS_DATABASE_URL` to an external database and introduce migrations (e.g., using Alembic).
 
 ## CI/CD Pipeline
 

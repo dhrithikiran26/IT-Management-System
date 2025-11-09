@@ -1,6 +1,6 @@
 import unittest
 import json
-from server import app, ASSET_DB, LICENSE_DB
+from server import app, Asset, License, initialize_database
 
 class IIMSExtendedTestCase(unittest.TestCase):
     """Extended test cases to increase code coverage"""
@@ -14,6 +14,8 @@ class IIMSExtendedTestCase(unittest.TestCase):
         server.current_role = None
         server.current_user = None
         server.is_authenticated = False
+        with app.app_context():
+            initialize_database(reset=True)
     
     def test_login_itstaff(self):
         """Test IT Staff login (no MFA required)"""
@@ -83,17 +85,18 @@ class IIMSExtendedTestCase(unittest.TestCase):
         self.app.post('/api/auth/login',
                      json={'username': 'itstaff', 'password': 'it123'})
         # Update existing asset
-        if len(ASSET_DB) > 0:
-            asset_id = ASSET_DB[0]['assetId']
+        with app.app_context():
+            asset = Asset.query.first()
+        if asset:
             response = self.app.post('/api/assets',
                                     json={
                                         'action': 'update',
-                                        'assetId': asset_id,
+                                        'assetId': asset.asset_id,
                                         'assetType': 'Updated Type',
-                                        'assignedUser': ASSET_DB[0]['assignedUser'],
-                                        'purchaseDate': ASSET_DB[0]['purchaseDate'],
-                                        'warrantyExpiryDate': ASSET_DB[0]['warrantyExpiryDate'],
-                                        'department': ASSET_DB[0]['department'],
+                                        'assignedUser': asset.assigned_user,
+                                        'purchaseDate': asset.purchase_date.strftime('%Y-%m-%d'),
+                                        'warrantyExpiryDate': asset.warranty_expiry_date.strftime('%Y-%m-%d'),
+                                        'department': asset.department,
                                         'status': 'Maintenance'
                                     })
             self.assertEqual(response.status_code, 200)
@@ -149,18 +152,19 @@ class IIMSExtendedTestCase(unittest.TestCase):
         self.app.post('/api/auth/login',
                      json={'username': 'itstaff', 'password': 'it123'})
         # Update existing license
-        if len(LICENSE_DB) > 0:
-            license_id = LICENSE_DB[0]['licenseId']
+        with app.app_context():
+            license_obj = License.query.first()
+        if license_obj:
             response = self.app.post('/api/licenses',
                                     json={
                                         'action': 'update',
-                                        'licenseId': license_id,
-                                        'softwareName': LICENSE_DB[0]['softwareName'],
-                                        'licenseKey': LICENSE_DB[0]['licenseKey'],
-                                        'totalSeats': LICENSE_DB[0]['totalSeats'],
+                                        'licenseId': license_obj.license_id,
+                                        'softwareName': license_obj.software_name,
+                                        'licenseKey': license_obj.license_key,
+                                        'totalSeats': license_obj.total_seats,
                                         'usedSeats': 50,
-                                        'expiryDate': LICENSE_DB[0]['expiryDate'],
-                                        'complianceStatus': 'Compliant'
+                                        'expiryDate': license_obj.expiry_date.strftime('%Y-%m-%d'),
+                                        'complianceStatus': license_obj.compliance_status
                                     })
             self.assertEqual(response.status_code, 200)
             data = json.loads(response.data)
